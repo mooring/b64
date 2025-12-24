@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,13 +14,43 @@ import (
 )
 
 func main() {
+	// 自定义帮助信息
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: b64 [OPTIONS] [FILE]\n\n")
+		fmt.Fprintf(os.Stderr, "Extract base64 encoded images from text or JSON to decoded/ directory.\n\n")
+		fmt.Fprintf(os.Stderr, "Arguments:\n")
+		fmt.Fprintf(os.Stderr, "  FILE                  Input file to process (reads from stdin if not provided)\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		fmt.Fprintf(os.Stderr, "  -f, --format-json     Pretty print JSON output (JSON input only)\n")
+		fmt.Fprintf(os.Stderr, "  --pretty              Pretty print JSON output (JSON input only)\n")
+		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n\n")
+		fmt.Fprintf(os.Stderr, "Supported Formats:\n")
+		fmt.Fprintf(os.Stderr, "  - JSON files with base64 images (will be parsed and formatted)\n")
+		fmt.Fprintf(os.Stderr, "  - Plain text with data URLs (e.g., data:image/png;base64,...)\n")
+		fmt.Fprintf(os.Stderr, "  - Markdown with embedded images (e.g., ![alt](data:image/...))\n\n")
+		fmt.Fprintf(os.Stderr, "Examples:\n")
+		fmt.Fprintf(os.Stderr, "  b64 s.json | jq                # Process JSON file, output compact JSON\n")
+		fmt.Fprintf(os.Stderr, "  b64 --pretty s.json            # Process JSON file, output pretty JSON\n")
+		fmt.Fprintf(os.Stderr, "  b64 document.md                # Process markdown/text file\n")
+		fmt.Fprintf(os.Stderr, "  cat s.json | b64 | jq          # Process from stdin\n")
+		fmt.Fprintf(os.Stderr, "  cat s.json | b64 -f | jq       # Process from stdin with pretty output\n")
+	}
+
+	// 定义命令行参数
+	var pretty bool
+	flag.BoolVar(&pretty, "pretty", false, "pretty print JSON output")
+	flag.BoolVar(&pretty, "format-json", false, "pretty print JSON output")
+	flag.BoolVar(&pretty, "f", false, "pretty print JSON output")
+	flag.Parse()
+
 	var data []byte
 	var err error
 
-	// 检查是否有文件参数
-	if len(os.Args) > 1 {
+	// 获取非标志参数（文件名）
+	args := flag.Args()
+	if len(args) > 0 {
 		// 从文件读取
-		filename := os.Args[1]
+		filename := args[0]
 		data, err = os.ReadFile(filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filename, err)
@@ -34,27 +65,80 @@ func main() {
 		}
 	}
 
-	// 解析 JSON
+	// 尝试解析为 JSON
 	var result interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
-		os.Exit(1)
-	}
+	if err := json.Unmarshal(data, &result); err == nil {
+		// 成功解析为 JSON
 
-	// 处理 base64 图片
-	if err := processImages(result); err != nil {
-		fmt.Fprintf(os.Stderr, "Error processing images: %v\n", err)
-		os.Exit(1)
-	}
+		// 处理 base64 图片
+		if err := processImages(result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error processing images: %v\n", err)
+			os.Exit(1)
+		}
 
-	// 输出处理后的 JSON
-	output, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
-		os.Exit(1)
+		// 输出处理后的 JSON
+		var output []byte
+		if pretty {
+			output, err = json.MarshalIndent(result, "", "  ")
+		} else {
+			output, err = json.Marshal(result)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(output))
+	} else {
+		// 不是 JSON，作为纯文本处理
+		if pretty {
+			fmt.Fprintf(os.Stderr, "Warning: --pretty flag only applies to JSON input, ignoring\n")
+		}
+		text := string(data)
+		processedText := processTextContent(text)
+		fmt.Print(processedText)
 	}
+}
 
-	fmt.Println(string(output))
+// processTextContent 处理纯文本内容，查找并替换 base64 图片
+func processTextContent(text string) string {
+	// 处理 Markdown 格式: ![alt](data:image/png;base64,...)
+	mdRe := regexp.MustCompile(`!\[([^\]]*)\]\(data:(image/[^;]+);base64,([^)]+)\)`)
+	text = mdRe.ReplaceAllStringFunc(text, func(match string) string {
+		matches := mdRe.FindStringSubmatch(match)
+		if len(matches) == 4 {
+			altText := matches[1]
+			mimeType := matches[2]
+			base64Data := matches[3]
+
+			filename, err := saveBase64Image(base64Data, mimeType)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save markdown image: %v\n", err)
+				return match // 保持原样
+			}
+			return fmt.Sprintf("![%s](%s)", altText, filename)
+		}
+		return match
+	})
+
+	// 处理普通 Data URL 格式: data:image/png;base64,...
+	dataURLRe := regexp.MustCompile(`data:(image/[^;]+);base64,([A-Za-z0-9+/=]+)`)
+	text = dataURLRe.ReplaceAllStringFunc(text, func(match string) string {
+		matches := dataURLRe.FindStringSubmatch(match)
+		if len(matches) == 3 {
+			mimeType := matches[1]
+			base64Data := matches[2]
+
+			filename, err := saveBase64Image(base64Data, mimeType)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save data URL image: %v\n", err)
+				return match // 保持原样
+			}
+			return filename
+		}
+		return match
+	})
+
+	return text
 }
 
 // processImages 递归处理 JSON 数据，查找并保存 base64 图片
