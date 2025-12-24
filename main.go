@@ -13,11 +13,25 @@ import (
 )
 
 func main() {
-	// 从标准输入读取数据
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-		os.Exit(1)
+	var data []byte
+	var err error
+
+	// 检查是否有文件参数
+	if len(os.Args) > 1 {
+		// 从文件读取
+		filename := os.Args[1]
+		data, err = os.ReadFile(filename)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filename, err)
+			os.Exit(1)
+		}
+	} else {
+		// 从标准输入读取
+		data, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// 解析 JSON
