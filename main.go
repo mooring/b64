@@ -10,8 +10,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+var imageCounter uint64
 
 func main() {
 	// 自定义帮助信息
@@ -263,11 +266,12 @@ func saveBase64Image(base64Data, mimeType string) (string, error) {
 		ext = ".webp"
 	}
 
-	// 生成文件名（使用时间戳格式，包含秒和毫秒以避免冲突）
+	// 生成文件名（使用时间戳 + 毫秒 + 计数器以避免冲突）
 	now := time.Now()
 	timestamp := now.Format("20060102150405") // 格式: YYYYMMDDHHMMSS
 	millis := now.UnixMilli() % 1000
-	filename := fmt.Sprintf("%s%03d%s", timestamp, millis, ext)
+	counter := atomic.AddUint64(&imageCounter, 1)
+	filename := fmt.Sprintf("%s%03d_%d%s", timestamp, millis, counter, ext)
 
 	// 获取当前工作目录
 	cwd, err := os.Getwd()
