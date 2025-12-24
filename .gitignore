@@ -1,0 +1,11 @@
+.history/
+.claude/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.tiff
+*.giff
+.vscode
+b64

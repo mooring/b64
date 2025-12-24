@@ -1,0 +1,2 @@
+#!/bin/bash
+CGO_ENABLED=false go build -o b64 --ldflags="-s -w" --trimpath

@@ -1,0 +1,174 @@
+package main
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+func main() {
+	// 从标准输入读取数据
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 解析 JSON
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 处理 base64 图片
+	if err := processImages(result); err != nil {
+		fmt.Fprintf(os.Stderr, "Error processing images: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 输出处理后的 JSON
+	output, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(string(output))
+}
+
+// processImages 递归处理 JSON 数据，查找并保存 base64 图片
+func processImages(data interface{}) error {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		// 检查是否包含图片数据（原格式：mime_type + data 字段）
+		if mimeType, ok := v["mime_type"].(string); ok {
+			if strings.HasPrefix(mimeType, "image/") {
+				if dataStr, ok := v["data"].(string); ok {
+					// 保存图片并替换数据
+					filename, err := saveBase64Image(dataStr, mimeType)
+					if err != nil {
+						return err
+					}
+					v["data"] = filename
+				}
+			}
+		}
+
+		// 递归处理所有字段，同时检查 Data URL 格式
+		for key, value := range v {
+			// 检查字符串值是否是 Data URL 格式
+			if strValue, ok := value.(string); ok {
+				if filename, replaced := processDataURL(strValue); replaced {
+					v[key] = filename
+					continue
+				}
+			}
+
+			// 递归处理嵌套结构
+			if err := processImages(value); err != nil {
+				return err
+			}
+		}
+
+	case []interface{}:
+		// 递归处理数组
+		for i, item := range v {
+			// 检查数组元素是否是 Data URL 格式的字符串
+			if strValue, ok := item.(string); ok {
+				if filename, replaced := processDataURL(strValue); replaced {
+					v[i] = filename
+					continue
+				}
+			}
+
+			// 递归处理嵌套结构
+			if err := processImages(item); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processDataURL 处理 Data URL 格式的字符串 (data:image/png;base64,...)
+// 返回文件名和是否成功处理的标志
+func processDataURL(dataURL string) (string, bool) {
+	// 匹配 Data URL 格式: data:image/...;base64,...
+	re := regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
+	matches := re.FindStringSubmatch(dataURL)
+
+	if len(matches) != 3 {
+		return "", false
+	}
+
+	mimeType := matches[1]
+	base64Data := matches[2]
+
+	// 保存图片
+	filename, err := saveBase64Image(base64Data, mimeType)
+	if err != nil {
+		// 如果保存失败，返回原值
+		fmt.Fprintf(os.Stderr, "Warning: failed to save Data URL image: %v\n", err)
+		return "", false
+	}
+
+	return filename, true
+}
+
+// saveBase64Image 保存 base64 编码的图片到文件
+func saveBase64Image(base64Data, mimeType string) (string, error) {
+	// 解码 base64
+	imageData, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64: %w", err)
+	}
+
+	// 根据 mime_type 确定文件扩展名
+	ext := ".png"
+	if strings.Contains(mimeType, "jpeg") || strings.Contains(mimeType, "jpg") {
+		ext = ".jpg"
+	} else if strings.Contains(mimeType, "png") {
+		ext = ".png"
+	} else if strings.Contains(mimeType, "gif") {
+		ext = ".gif"
+	} else if strings.Contains(mimeType, "webp") {
+		ext = ".webp"
+	}
+
+	// 生成文件名（使用时间戳格式，包含秒和毫秒以避免冲突）
+	now := time.Now()
+	timestamp := now.Format("20060102150405") // 格式: YYYYMMDDHHMMSS
+	millis := now.UnixMilli() % 1000
+	filename := fmt.Sprintf("%s%03d%s", timestamp, millis, ext)
+
+	// 获取当前工作目录
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// 创建 images 目录（如果不存在）
+	imagesDir := filepath.Join(cwd, "images")
+	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create images directory: %w", err)
+	}
+
+	// 构建完整文件路径
+	fullPath := filepath.Join(imagesDir, filename)
+
+	// 保存文件
+	if err := os.WriteFile(fullPath, imageData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// 返回相对路径 images/filename
+	return filepath.Join("images", filename), nil
+}
