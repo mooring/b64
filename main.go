@@ -22,7 +22,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  FILE                  Input file to process (reads from stdin if not provided)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -f, --format-json     Pretty print JSON output (JSON input only)\n")
-		fmt.Fprintf(os.Stderr, "  --pretty              Pretty print JSON output (JSON input only)\n")
+		fmt.Fprintf(os.Stderr, "  -p, --pretty              Pretty print JSON output (JSON input only)\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n\n")
 		fmt.Fprintf(os.Stderr, "Supported Formats:\n")
 		fmt.Fprintf(os.Stderr, "  - JSON files with base64 images (will be parsed and formatted)\n")
@@ -39,6 +39,7 @@ func main() {
 	// 定义命令行参数
 	var pretty bool
 	flag.BoolVar(&pretty, "pretty", false, "pretty print JSON output")
+	flag.BoolVar(&pretty, "p", false, "pretty print JSON output")
 	flag.BoolVar(&pretty, "format-json", false, "pretty print JSON output")
 	flag.BoolVar(&pretty, "f", false, "pretty print JSON output")
 	flag.Parse()
@@ -275,13 +276,13 @@ func saveBase64Image(base64Data, mimeType string) (string, error) {
 	}
 
 	// 创建 decoded 目录（如果不存在）
-	imagesDir := filepath.Join(cwd, "decoded")
-	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+	decodedDir := filepath.Join(cwd, "decoded")
+	if err := os.MkdirAll(decodedDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create decoded directory: %w", err)
 	}
 
 	// 构建完整文件路径
-	fullPath := filepath.Join(imagesDir, filename)
+	fullPath := filepath.Join(decodedDir, filename)
 
 	// 保存文件
 	if err := os.WriteFile(fullPath, imageData, 0644); err != nil {
