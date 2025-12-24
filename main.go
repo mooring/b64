@@ -99,9 +99,30 @@ func processImages(data interface{}) error {
 }
 
 // processDataURL 处理 Data URL 格式的字符串 (data:image/png;base64,...)
+// 同时处理 Markdown 格式: ![image](data:image/png;base64,...)
 // 返回文件名和是否成功处理的标志
 func processDataURL(dataURL string) (string, bool) {
-	// 匹配 Data URL 格式: data:image/...;base64,...
+	// 首先检查是否是 Markdown 格式: ![alt](data:image/...;base64,...)
+	mdRe := regexp.MustCompile(`!\[([^\]]*)\]\(data:(image/[^;]+);base64,([^)]+)\)`)
+	mdMatches := mdRe.FindStringSubmatch(dataURL)
+
+	if len(mdMatches) == 4 {
+		altText := mdMatches[1]
+		mimeType := mdMatches[2]
+		base64Data := mdMatches[3]
+
+		// 保存图片
+		filename, err := saveBase64Image(base64Data, mimeType)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save markdown image: %v\n", err)
+			return "", false
+		}
+
+		// 返回 Markdown 格式的文件引用
+		return fmt.Sprintf("![%s](%s)", altText, filename), true
+	}
+
+	// 匹配普通 Data URL 格式: data:image/...;base64,...
 	re := regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
 	matches := re.FindStringSubmatch(dataURL)
 
@@ -155,10 +176,10 @@ func saveBase64Image(base64Data, mimeType string) (string, error) {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// 创建 images 目录（如果不存在）
-	imagesDir := filepath.Join(cwd, "images")
+	// 创建 decoded 目录（如果不存在）
+	imagesDir := filepath.Join(cwd, "decoded")
 	if err := os.MkdirAll(imagesDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create images directory: %w", err)
+		return "", fmt.Errorf("failed to create decoded directory: %w", err)
 	}
 
 	// 构建完整文件路径
@@ -169,6 +190,6 @@ func saveBase64Image(base64Data, mimeType string) (string, error) {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// 返回相对路径 images/filename
-	return filepath.Join("images", filename), nil
+	// 返回相对路径 decoded/filename
+	return filepath.Join("decoded", filename), nil
 }

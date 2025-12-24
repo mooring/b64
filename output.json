@@ -1,0 +1,24 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "![image](decoded/20251224200052334.png)"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "safetyRatings": []
+    }
+  ],
+  "usageMetadata": {
+    "candidatesTokenCount": 1347,
+    "promptTokenCount": 8,
+    "promptTokensDetails": null,
+    "thoughtsTokenCount": 0,
+    "totalTokenCount": 1355
+  }
+}
