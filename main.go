@@ -20,20 +20,26 @@ func main() {
 	// 自定义帮助信息
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: b64 [OPTIONS] [FILE]\n\n")
-		fmt.Fprintf(os.Stderr, "Extract base64 encoded images from text or JSON to decoded/ directory.\n\n")
+		fmt.Fprintf(os.Stderr, "Extract base64 encoded images from text or JSON to decoded/ directory.\n")
+		fmt.Fprintf(os.Stderr, "Or encode image files to base64 format.\n\n")
 		fmt.Fprintf(os.Stderr, "Arguments:\n")
 		fmt.Fprintf(os.Stderr, "  FILE                  Input file to process (reads from stdin if not provided)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -f, --format-json     Pretty print JSON output (JSON input only)\n")
-		fmt.Fprintf(os.Stderr, "  -p, --pretty              Pretty print JSON output (JSON input only)\n")
+		fmt.Fprintf(os.Stderr, "  -p, --pretty          Pretty print JSON output (JSON input only)\n")
+		fmt.Fprintf(os.Stderr, "  -o, --output DIR      Output directory for encoded image files (image input only)\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n\n")
 		fmt.Fprintf(os.Stderr, "Supported Formats:\n")
 		fmt.Fprintf(os.Stderr, "  - JSON files with base64 images (will be parsed and formatted)\n")
 		fmt.Fprintf(os.Stderr, "  - Plain text with data URLs (e.g., data:image/png;base64,...)\n")
-		fmt.Fprintf(os.Stderr, "  - Markdown with embedded images (e.g., ![alt](data:image/...))\n\n")
+		fmt.Fprintf(os.Stderr, "  - Markdown with embedded images (e.g., ![alt](data:image/...))\n")
+		fmt.Fprintf(os.Stderr, "  - Image files (PNG, JPEG, GIF, WebP, BMP, SVG)\n\n")
 		fmt.Fprintf(os.Stderr, "Examples:\n")
 		fmt.Fprintf(os.Stderr, "  b64 s.json | jq                # Process JSON file, output compact JSON\n")
 		fmt.Fprintf(os.Stderr, "  b64 --pretty s.json            # Process JSON file, output pretty JSON\n")
+		fmt.Fprintf(os.Stderr, "  b64 image.png                  # Encode image to base64 (same directory)\n")
+		fmt.Fprintf(os.Stderr, "  b64 -o ./ image.png            # Encode image to base64 (current directory)\n")
+		fmt.Fprintf(os.Stderr, "  b64 -o /tmp image.png          # Encode image to base64 (specified directory)\n")
 		fmt.Fprintf(os.Stderr, "  b64 document.md                # Process markdown/text file\n")
 		fmt.Fprintf(os.Stderr, "  cat s.json | b64 | jq          # Process from stdin\n")
 		fmt.Fprintf(os.Stderr, "  cat s.json | b64 -f | jq       # Process from stdin with pretty output\n")
@@ -41,10 +47,13 @@ func main() {
 
 	// 定义命令行参数
 	var pretty bool
+	var outputDir string
 	flag.BoolVar(&pretty, "pretty", false, "pretty print JSON output")
 	flag.BoolVar(&pretty, "p", false, "pretty print JSON output")
 	flag.BoolVar(&pretty, "format-json", false, "pretty print JSON output")
 	flag.BoolVar(&pretty, "f", false, "pretty print JSON output")
+	flag.StringVar(&outputDir, "output", "", "output directory for encoded image files")
+	flag.StringVar(&outputDir, "o", "", "output directory for encoded image files")
 	flag.Parse()
 
 	var data []byte
@@ -55,6 +64,17 @@ func main() {
 	if len(args) > 0 {
 		// 从文件读取
 		filename := args[0]
+
+		// 检查是否是图片文件
+		if isImageFile(filename) {
+			// 处理图片文件，生成 base64 文件
+			if err := processImageFile(filename, outputDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Error processing image file: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		data, err = os.ReadFile(filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading file %s: %v\n", filename, err)
@@ -295,4 +315,90 @@ func saveBase64Image(base64Data, mimeType string) (string, error) {
 
 	// 返回相对路径 decoded/filename
 	return filepath.Join("decoded", filename), nil
+}
+
+// isImageFile 检查文件是否是图片文件
+func isImageFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg":
+		return true
+	}
+	return false
+}
+
+// getMimeType 根据文件扩展名返回 MIME 类型
+func getMimeType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "image/png"
+	}
+}
+
+// processImageFile 处理图片文件，生成两个 base64 文件
+func processImageFile(filename, outputDir string) error {
+	// 读取图片文件
+	imageData, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("failed to read image file: %w", err)
+	}
+
+	// 编码为 base64
+	base64Str := base64.StdEncoding.EncodeToString(imageData)
+
+	// 获取 MIME 类型
+	mimeType := getMimeType(filename)
+
+	// 确定输出目录
+	var dir string
+	if outputDir != "" {
+		// 使用指定的输出目录
+		dir = outputDir
+		// 创建目录（如果不存在）
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
+	} else {
+		// 使用源文件所在目录
+		dir = filepath.Dir(filename)
+	}
+
+	// 获取文件名（不含扩展名）
+	baseFilename := filepath.Base(filename)
+	ext := filepath.Ext(baseFilename)
+	nameWithoutExt := strings.TrimSuffix(baseFilename, ext)
+
+	// 生成两个输出文件的路径
+	rawB64Path := filepath.Join(dir, nameWithoutExt+".raw.b64")
+	mimeB64Path := filepath.Join(dir, nameWithoutExt+".mime.b64")
+
+	// 写入 raw.b64 文件（纯 base64 内容）
+	if err := os.WriteFile(rawB64Path, []byte(base64Str), 0644); err != nil {
+		return fmt.Errorf("failed to write raw.b64 file: %w", err)
+	}
+
+	// 写入 mime.b64 文件（带 MIME 类型）
+	mimeB64Content := fmt.Sprintf("%s;base64,%s", mimeType, base64Str)
+	if err := os.WriteFile(mimeB64Path, []byte(mimeB64Content), 0644); err != nil {
+		return fmt.Errorf("failed to write mime.b64 file: %w", err)
+	}
+
+	fmt.Printf("Generated:\n")
+	fmt.Printf("  %s\n", rawB64Path)
+	fmt.Printf("  %s\n", mimeB64Path)
+
+	return nil
 }
