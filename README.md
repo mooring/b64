@@ -7,7 +7,8 @@
 将编译好的b64文件放到 `/usr/local/bin` 可以在任意位置调用 `b64` 命令,不用管命令的路径, 和正常的`ls`, `pwd` 等命令一样
 
 ```bash
-curl http://xx.com/path.jpg|b64
+b64 http://xx.com/path.jpg
+```
 
 ## 功能特性
 
